@@ -1,36 +1,65 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable, List, Sequence, Tuple
+
 from processor_regex import classify_with_regex
-from processor_bert import classify_with_bert
-from processor_llm import classify_with_llm
 
-def classify(logs):
-    labels = []
-    for source, log_msg in logs:
-        label = classify_log(source, log_msg)
-        labels.append(label)
-    return labels
+LogRow = Tuple[str, str]
 
 
-def classify_log(source, log_msg):
+def _get_bert_classifier():
+    from processor_bert import classify_with_bert
+
+    return classify_with_bert
+
+
+def _get_llm_classifier():
+    from processor_llm import classify_with_llm
+
+    return classify_with_llm
+
+
+def classify(logs: Sequence[LogRow]) -> List[str]:
+    return [classify_log(source, log_msg) for source, log_msg in logs]
+
+
+def classify_log(source: str, log_msg: str) -> str:
     if source == "LegacyCRM":
-        label = classify_with_llm(log_msg)
-    else:
-        label = classify_with_regex(log_msg)
-        if not label:
-            label = classify_with_bert(log_msg)
-    return label
+        try:
+            return _get_llm_classifier()(log_msg)
+        except Exception:
+            pass
 
-def classify_csv(input_file):
+    label = classify_with_regex(log_msg)
+    if label:
+        return label
+
+    try:
+        return _get_bert_classifier()(log_msg)
+    except Exception:
+        return "Unclassified"
+
+def classify_csv(input_file: str | Path) -> str:
     import pandas as pd
-    df = pd.read_csv(input_file)
+
+    input_path = Path(input_file)
+    if not input_path.exists():
+        candidate = Path(__file__).resolve().parent / "resources" / str(input_file)
+        if candidate.exists():
+            input_path = candidate
+
+    df = pd.read_csv(input_path)
 
     # Perform classification
     df["target_label"] = classify(list(zip(df["source"], df["log_message"])))
 
     # Save the modified file
-    output_file = "output.csv"
-    df.to_csv(output_file, index=False)
+    output_path = Path(__file__).resolve().parent / "resources" / "output.csv"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
 
-    return output_file
+    return str(output_path)
 
 if __name__ == '__main__':
     classify_csv("test.csv")

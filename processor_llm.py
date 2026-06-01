@@ -2,11 +2,19 @@ from dotenv import load_dotenv
 from groq import Groq
 import json
 import re
+import os
+from functools import lru_cache
 
 
 load_dotenv()
 
-groq = Groq()
+
+@lru_cache(maxsize=1)
+def _get_groq_client() -> Groq:
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+    return Groq(api_key=api_key)
 
 def classify_with_llm(log_msg):
     """
@@ -20,6 +28,7 @@ def classify_with_llm(log_msg):
     Put the category inside <category> </category> tags. 
     Log message: {log_msg}'''
 
+    groq = _get_groq_client()
     chat_completion = groq.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         # model="llama-3.3-70b-versatile",
@@ -28,10 +37,10 @@ def classify_with_llm(log_msg):
     )
 
     content = chat_completion.choices[0].message.content
-    match = re.search(r'<category>(.*)<\/category>', content, flags=re.DOTALL)
+    match = re.search(r"<category>(.*?)</category>", content, flags=re.DOTALL | re.IGNORECASE)
     category = "Unclassified"
     if match:
-        category = match.group(1)
+        category = match.group(1).strip()
 
     return category
 

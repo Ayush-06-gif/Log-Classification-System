@@ -1,11 +1,36 @@
-import joblib
-from sentence_transformers import SentenceTransformer
+from __future__ import annotations
 
-model_embedding = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight embedding model
-model_classification = joblib.load("models/log_classifier.joblib")
+import os
+from functools import lru_cache
+from pathlib import Path
 
 
-def classify_with_bert(log_message):
+@lru_cache(maxsize=1)
+def _load_models():
+    if os.getenv("DISABLE_BERT", "").strip() in {"1", "true", "True", "yes", "YES"}:
+        raise RuntimeError("BERT classifier disabled via DISABLE_BERT")
+
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception as exc:
+        raise RuntimeError(
+            "Optional dependency missing: sentence-transformers (and its backend, e.g. torch)."
+        ) from exc
+
+    try:
+        import joblib
+    except Exception as exc:
+        raise RuntimeError("Optional dependency missing: joblib") from exc
+
+    model_embedding = SentenceTransformer("all-MiniLM-L6-v2")
+    model_path = Path(__file__).resolve().parent / "models" / "log_classifier.joblib"
+    model_classification = joblib.load(model_path)
+    return model_embedding, model_classification
+
+
+def classify_with_bert(log_message: str) -> str:
+    model_embedding, model_classification = _load_models()
+
     embeddings = model_embedding.encode([log_message])
     probabilities = model_classification.predict_proba(embeddings)[0]
     if max(probabilities) < 0.5:
